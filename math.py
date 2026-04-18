@@ -6,6 +6,7 @@ from langchain_classic.agents import Tool, initialize_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_community.callbacks import StreamlitCallbackHandler
 import streamlit as st
+import time
 
 load_dotenv()
 
@@ -17,23 +18,24 @@ if not groq_api:
     st.info("please add api key")
     st.stop()
 
-model = ChatGroq(model="llama-3.1-8b-instant",groq_api_key=groq_api)
+model = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=groq_api)
 
 wiki = WikipediaAPIWrapper()
-wikipedia_tool = Tool(name="wikipedia",func=wiki.run,description="use for general knowledge questions")
+wikipedia_tool = Tool(name="wikipedia", func=wiki.run, description="use for general knowledge questions")
+
 math_chain = LLMMathChain.from_llm(llm=model, verbose=True)
 
 def safe_math(question):
     try:
         result = math_chain.invoke({"question": question})
         return result["answer"]
-    except Exception as e:
+    except:
         try:
             return str(eval(question))
         except:
             return "calculation error"
 
-calculator = Tool(name="calculator",func=safe_math,description="use for solving math problems")
+calculator = Tool(name="calculator", func=safe_math, description="use this ONLY for math calculations")
 
 prompt = """
 You are a math agent.
@@ -43,15 +45,21 @@ Question: {question}
 Answer:
 """
 
-prompt_template = PromptTemplate(template=prompt,input_variables=["question"])
+prompt_template = PromptTemplate(template=prompt, input_variables=["question"])
 chain = LLMChain(prompt=prompt_template, llm=model)
-reasoning_tool = Tool(name="reasoning",func=chain.run,description="use for word problems and logic")
 
-assistant_agent = initialize_agent(tools=[wikipedia_tool, calculator, reasoning_tool],llm=model,verbose=True,handle_parsing_errors=True)
+reasoning_tool = Tool(name="reasoning", func=chain.run, description="use for word problems and logic")
 
+assistant_agent = initialize_agent(
+    tools=[wikipedia_tool, calculator, reasoning_tool],
+    llm=model,
+    verbose=True,
+    handle_parsing_errors=True
+)
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Hi, I am a Math chatbot"}]
+
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
@@ -63,13 +71,17 @@ if st.button("Clear History"):
 if st.button("Find My Answer"):
     if question:
         with st.spinner("thinking..."):
-
             st.session_state.messages.append({"role": "user", "content": question})
             st.chat_message("user").write(question)
 
-            st_cb = StreamlitCallbackHandler(st.container(),expand_new_thoughts=False)
+            st_cb = StreamlitCallbackHandler(st.container(), expand_new_thoughts=False)
 
-            response = assistant_agent.run(question,callbacks=[st_cb])
+            time.sleep(1)
+
+            try:
+                response = assistant_agent.run(question, callbacks=[st_cb])
+            except:
+                response = "Too many requests right now. Please wait and try again."
 
             st.session_state.messages.append({"role": "assistant", "content": response})
             st.chat_message("assistant").write(response)
